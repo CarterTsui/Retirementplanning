@@ -15,11 +15,12 @@
   
 
 
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Retirement Planner (Monthly)</title>
+  <title>Retirement Planner (Monthly, Mixed Chart)</title>
   <!-- Chart.js (CDN) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
@@ -80,8 +81,10 @@
   </style>
 </head>
 <body>
-  <h1>Retirement Planner (Monthly Compounding)</h1>
+  <h1>Retirement Planner (Monthly, Mixed Chart)</h1>
   <div class="container">
+
+    <!-- Accumulation Phase Inputs -->
     <label for="currentAge">Current Age</label>
     <input type="number" id="currentAge" placeholder="e.g. 30" min="0"/>
 
@@ -100,10 +103,10 @@
     <label for="annualReturnInvestments">Annual Return (Investments) %</label>
     <input type="number" id="annualReturnInvestments" placeholder="e.g. 7" step="0.01"/>
 
-    <label for="monthlySavingsContribution">Monthly Savings Contribution (USD)</label>
+    <label for="monthlySavingsContribution">Monthly Savings Contribution (Before Retirement)</label>
     <input type="number" id="monthlySavingsContribution" placeholder="e.g. 300" min="0"/>
 
-    <label for="monthlyInvestmentContribution">Monthly Investment Contribution (USD)</label>
+    <label for="monthlyInvestmentContribution">Monthly Investment Contribution (Before Retirement)</label>
     <input type="number" id="monthlyInvestmentContribution" placeholder="e.g. 500" min="0"/>
 
     <label for="inflationRate">Annual Inflation Rate (%)</label>
@@ -112,10 +115,16 @@
     <label for="desiredMonthlyWithdrawal">Desired Monthly Withdrawal After Retirement (USD)</label>
     <input type="number" id="desiredMonthlyWithdrawal" placeholder="e.g. 3000" min="0"/>
 
+    <!-- Post-Retirement Contributions -->
+    <label for="monthlySavingsContributionAfterRetirement">Monthly Savings Contribution (After Retirement)</label>
+    <input type="number" id="monthlySavingsContributionAfterRetirement" placeholder="e.g. 100" min="0"/>
+
+    <label for="monthlyInvestmentContributionAfterRetirement">Monthly Investment Contribution (After Retirement)</label>
+    <input type="number" id="monthlyInvestmentContributionAfterRetirement" placeholder="e.g. 200" min="0"/>
+
     <button class="btn" id="calculateBtn">Calculate</button>
 
     <div id="results"></div>
-
     <div id="chartContainer">
       <canvas id="balanceChart" width="400" height="200"></canvas>
     </div>
@@ -137,6 +146,8 @@
       const monthlyInvestmentContribution = parseFloat(document.getElementById('monthlyInvestmentContribution').value);
       const annualInflationRate = parseFloat(document.getElementById('inflationRate').value) / 100;
       const desiredMonthlyWithdrawal = parseFloat(document.getElementById('desiredMonthlyWithdrawal').value);
+      const monthlySavingsContributionAfterRetirement = parseFloat(document.getElementById('monthlySavingsContributionAfterRetirement').value);
+      const monthlyInvestmentContributionAfterRetirement = parseFloat(document.getElementById('monthlyInvestmentContributionAfterRetirement').value);
 
       // 2) Basic validation
       if (
@@ -144,7 +155,8 @@
         isNaN(currentSavings) || isNaN(currentInvestments) ||
         isNaN(annualReturnSavings) || isNaN(annualReturnInvestments) ||
         isNaN(monthlySavingsContribution) || isNaN(monthlyInvestmentContribution) ||
-        isNaN(annualInflationRate) || isNaN(desiredMonthlyWithdrawal)
+        isNaN(annualInflationRate) || isNaN(desiredMonthlyWithdrawal) ||
+        isNaN(monthlySavingsContributionAfterRetirement) || isNaN(monthlyInvestmentContributionAfterRetirement)
       ) {
         alert("Please fill all fields with valid numbers.");
         return;
@@ -154,7 +166,7 @@
         return;
       }
 
-      // 3) Monthly rates
+      // 3) Calculate monthly rates
       const monthlyReturnSavings = Math.pow(1 + annualReturnSavings, 1/12) - 1;
       const monthlyReturnInvestments = Math.pow(1 + annualReturnInvestments, 1/12) - 1;
       const monthlyInflation = Math.pow(1 + annualInflationRate, 1/12) - 1;
@@ -162,29 +174,34 @@
       // 4) Time ranges (in months)
       const startMonth = Math.floor(currentAge * 12);
       const retireMonth = Math.floor(retirementAge * 12);
-      const endMonth = 100 * 12;  // project until age 100 (in months)
+      const endMonth = 100 * 12;  // project until age 100
 
       // 5) Initialize balances
       let savingsBalance = currentSavings;
       let investmentBalance = currentInvestments;
 
-      // 6) For tracking data
-      let chartLabels = [];       // each label = age in years
-      let chartData = [];         // each data = total balance
+      // 6) Prepare arrays for chart data
+      let chartLabels = [];           // each label = age in years
+      let chartBalanceData = [];      // total balance at that time
+      let chartWithdrawalData = [];   // the monthly withdrawal at that time
 
-      // We track monthly, but we'll only store once per year in the chart to reduce data density
-      const storeDataIfYearPassed = (monthCount) => {
-        // If the monthCount is exactly a multiple of 12, we store a data point
+      // We'll store data once per year (every 12 months) to avoid a huge chart
+      function storeDataIfYearPassed(monthCount, currentWithdrawal) {
         if (monthCount % 12 === 0) {
           const currentAgeInYears = monthCount / 12;
           chartLabels.push(currentAgeInYears.toFixed(0));
-          chartData.push(savingsBalance + investmentBalance);
-        }
-      };
 
-      // 7) Accumulation Phase: from currentAge in months to retirementAge in months
+          // Store total balance
+          chartBalanceData.push(savingsBalance + investmentBalance);
+
+          // Store monthly withdrawal (if retired, otherwise 0)
+          chartWithdrawalData.push(currentWithdrawal || 0);
+        }
+      }
+
+      // 7) Accumulation Phase (from currentAge in months to retirementAge in months)
       for (let m = startMonth; m < retireMonth; m++) {
-        // Add monthly contributions
+        // Add monthly contributions (pre-retirement)
         savingsBalance += monthlySavingsContribution;
         investmentBalance += monthlyInvestmentContribution;
 
@@ -192,95 +209,123 @@
         savingsBalance *= (1 + monthlyReturnSavings);
         investmentBalance *= (1 + monthlyReturnInvestments);
 
-        storeDataIfYearPassed(m);
+        // Before retirement, monthly withdrawal = 0
+        storeDataIfYearPassed(m, 0);
       }
 
-      // 8) Retirement / Withdrawal Phase
-      // Initialize monthly withdrawal to user-specified value
+      // 8) Retirement Phase
       let currentMonthlyWithdrawal = desiredMonthlyWithdrawal;
 
       for (let m = retireMonth; m <= endMonth; m++) {
-        // Withdraw from total balance
+        // Add post-retirement contributions
+        savingsBalance += monthlySavingsContributionAfterRetirement;
+        investmentBalance += monthlyInvestmentContributionAfterRetirement;
+
+        // Calculate total balance before withdrawal
         let totalBalance = savingsBalance + investmentBalance;
         if (totalBalance <= 0) {
-          // If it's already 0 or negative, break out
+          // If it's already at/below 0, set to 0
           savingsBalance = 0;
           investmentBalance = 0;
-          storeDataIfYearPassed(m);
+          storeDataIfYearPassed(m, 0);
           continue;
         }
 
-        // If totalBalance < currentMonthlyWithdrawal, set it to zero
-        if (totalBalance < currentMonthlyWithdrawal) {
+        // This is the withdrawal for this month (before we inflate for the next month)
+        let thisMonthWithdrawal = currentMonthlyWithdrawal;
+
+        // If totalBalance < thisMonthWithdrawal, then deplete
+        if (totalBalance < thisMonthWithdrawal) {
           savingsBalance = 0;
           investmentBalance = 0;
+          // We'll track the withdrawal that zeroes out the account
+          // but effectively the fund is depleted after this
         } else {
-          // We can withdraw
-          // (For simplicity, withdraw from savings first, then from investments)
-          if (savingsBalance >= currentMonthlyWithdrawal) {
-            savingsBalance -= currentMonthlyWithdrawal;
+          // Withdraw in full
+          if (savingsBalance >= thisMonthWithdrawal) {
+            savingsBalance -= thisMonthWithdrawal;
           } else {
-            const remainder = currentMonthlyWithdrawal - savingsBalance;
+            const remainder = thisMonthWithdrawal - savingsBalance;
             savingsBalance = 0;
             investmentBalance -= remainder;
           }
         }
 
-        // Apply monthly returns to what's left
+        // Apply monthly returns to whatever remains
         savingsBalance *= (1 + monthlyReturnSavings);
         investmentBalance *= (1 + monthlyReturnInvestments);
 
-        // Increase the monthly withdrawal by monthly inflation
+        // Now we increase withdrawal for next month
         currentMonthlyWithdrawal *= (1 + monthlyInflation);
 
-        storeDataIfYearPassed(m);
+        // Store data for the chart (using the withdrawal we just used)
+        storeDataIfYearPassed(m, thisMonthWithdrawal);
       }
 
       // 9) Final Balance
-      let finalBalance = savingsBalance + investmentBalance;
+      const finalBalance = savingsBalance + investmentBalance;
 
       // 10) Display results
       resultsDiv.innerHTML = `
         <h2>Results</h2>
-        <p>Final balance at age 100: <strong>$${finalBalance.toFixed(2)}</strong></p>
+        <p><strong>Final balance at age 100:</strong> $${finalBalance.toFixed(2)}</p>
       `;
 
-      // 11) Plot chart
-      createChart(chartLabels, chartData);
+      // 11) Plot chart (Mixed: line for balance, bar for withdrawal)
+      createMixedChart(chartLabels, chartBalanceData, chartWithdrawalData);
     });
 
     let chartInstance = null;
-    function createChart(labels, data) {
+    function createMixedChart(labels, balanceData, withdrawalData) {
       const ctx = document.getElementById('balanceChart').getContext('2d');
       if (chartInstance) {
         chartInstance.destroy();
       }
       chartInstance = new Chart(ctx, {
-        type: 'line',
         data: {
           labels: labels,
-          datasets: [{
-            label: 'Total Balance',
-            data: data,
-            borderColor: 'rgba(75, 192, 192, 1)',
-            borderWidth: 2,
-            fill: false
-          }]
+          datasets: [
+            {
+              type: 'line',
+              label: 'Total Balance',
+              data: balanceData,
+              borderColor: 'rgba(75, 192, 192, 1)',
+              borderWidth: 2,
+              fill: false,
+              yAxisID: 'y'
+            },
+            {
+              type: 'bar',
+              label: 'Monthly Withdrawal',
+              data: withdrawalData,
+              backgroundColor: 'rgba(255, 99, 132, 0.5)',
+              borderWidth: 1,
+              yAxisID: 'y2'
+            }
+          ]
         },
         options: {
           responsive: true,
           scales: {
             y: {
+              type: 'linear',
+              position: 'left',
               beginAtZero: true,
               title: {
                 display: true,
                 text: 'Balance (USD)'
               }
             },
-            x: {
+            y2: {
+              type: 'linear',
+              position: 'right',
+              beginAtZero: true,
+              grid: {
+                drawOnChartArea: false
+              },
               title: {
                 display: true,
-                text: 'Age (Years)'
+                text: 'Monthly Withdrawal (USD)'
               }
             }
           }
@@ -288,6 +333,9 @@
       });
     }
   </script>
+</body>
+</html>
+
 
   
 
